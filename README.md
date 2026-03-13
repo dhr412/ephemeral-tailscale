@@ -1,33 +1,24 @@
 # Ephemeral Tailscale SSH Client
 
-A portable tool for establishing temporary SSH access to remote hosts over a private Tailscale network without requiring permanent Tailscale installation or admin privileges on client machines. It provides two modes: an embedded tsnet-based TCP proxy that runs as a standalone binary, and a Tailscale client mode with ephemeral in-memory state.
+A portable tool for establishing temporary SSH access to remote hosts over a private Tailscale network without requiring permanent Tailscale installation or admin privileges on client machines.
 
 ## How It Works
 
-**Embedded Mode (Default)**
 - Creates an ephemeral tsnet node that joins your Tailscale network
 - Opens a local TCP proxy
 - Forwards SSH traffic through the Tailscale network to the remote host
 - Uses native SSH client with all its features (keys, config, port forwarding)
+- Removes all state on exit, leaving no traces of the connection.
 - No system-wide Tailscale installation required
-
-**Client Mode**
-- Runs `tailscaled` with `--state=mem:` for ephemeral in-memory state
-- Connects to Tailscale network and opens direct SSH session
-- Falls back to `su` if `sudo` is unavailable
-- Automatically cleans up on exit
-
-Both modes use ephemeral authentication keys and remove all state on exit, leaving no traces of the connection.
 
 ## Features
 
 - **Zero persistent state** - All credentials and connection data removed on exit
-- **No elevation required** (embedded mode) - Runs as regular user
+- **No elevation required** - Runs as regular user
 - **Ephemeral tailnet nodes** - Automatically removed from your network
 - **Graceful cleanup** - Handles Ctrl+C (SIGINT) and SIGTERM signals
-- **Cross-platform** - Embedded mode works on Windows, macOS, Linux
+- **Cross-platform** - Tested on Windows & Linux
 - **Native SSH** - Uses your existing SSH client and configuration
-- **Automatic fallback** - Client mode supports both sudo and su
 
 ## Installation
 
@@ -49,7 +40,7 @@ chmod +x <binary path>
 **Windows:**
 ```powershell
 # Download the exe from releases
-# Move to a directory in your PATH or run directly
+# Run directly or move to a directory in your PATH
 ```
 
 **Build from source:**
@@ -61,37 +52,19 @@ go build -o tssh ./src/
 
 ## Usage
 
-**Embedded Mode (Recommended for most users):**
 ```bash
-# Run without arguments (embedded is default)
 ./tssh
-
-# Or explicitly specify embedded mode
-./tssh embedded
 ```
 
 When prompted, provide:
 - Tailscale ephemeral auth key
 - Host Tailscale address (e.g., `100.64.1.5` or `hostname.tailnet.ts.net`)
-- Local proxy port (default: 2222)
+- Local proxy port (default: 22122)
 
 Then connect using your SSH client:
 ```bash
 ssh username@localhost -p 2222
 ```
-
-**Client Mode (For Linux VMs):**
-```bash
-./tssh client
-```
-
-When prompted, provide:
-- Tailscale ephemeral auth key
-- Host Tailscale address
-- SSH username
-- SSH port (default: 22)
-
-The program will automatically establish the SSH session.
 
 **Help:**
 ```bash
