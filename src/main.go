@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -60,13 +59,18 @@ func readConfig() (Config, error) {
 }
 
 func run(ctx context.Context, config Config) error {
+	tempDir, err := os.MkdirTemp("", "tssh-ephemeral-state-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp dir: %w", err)
+	}
+
 	srv := &tsnet.Server{
 		Hostname:  "tssh-ephemeral-node",
 		AuthKey:   config.AuthKey,
 		Ephemeral: true,
-		Dir:       filepath.Join(os.TempDir(), "tssh-ephemeral-state"),
+		Dir:       tempDir,
 	}
-	defer cleanup(srv)
+	defer cleanup(srv, tempDir)
 
 	fmt.Println("Connecting to tailnet...")
 	if err := srv.Start(); err != nil {
@@ -91,10 +95,15 @@ func run(ctx context.Context, config Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to start listener: %w", err)
 	}
-	defer listener.Close()
+	defer func() {
+		if cerr := listener.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to close listener: %v\n", cerr)
+		}
+	}()
 
 	fmt.Printf("\nProxy running on localhost:%s\n", config.LocalPort)
-	fmt.Printf("Connect with: ssh <user>@localhost -p %s\n\n", config.LocalPort)
+	fmt.Printf("Connect with: ssh <user>@localhost -p %s\n", config.LocalPort)
+	fmt.Printf("Port forwarding: ssh -L <local-port>:localhost:<remote-port> <user>@localhost -p %s\n\n", config.LocalPort)
 
 	errChan := make(chan error, 1)
 	go func() {
@@ -146,21 +155,29 @@ func handleConnection(ctx context.Context, srv *tsnet.Server, clientConn net.Con
 	<-done
 }
 
-func cleanup(srv *tsnet.Server) {
+func cleanup(srv *tsnet.Server, tempDir string) {
 	fmt.Println("\nCleaning up...")
-	srv.Close()
-	os.RemoveAll(filepath.Join(os.TempDir(), "tssh-ephemeral-state"))
+	if err := srv.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to close tsnet server: %v\n", err)
+	}
+	if tempDir != "" {
+		if err := os.RemoveAll(tempDir); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to remove temp dir: %v\n", err)
+		}
+	}
 	fmt.Println("Cleanup complete")
 }
 
 func printUsage() {
-	fmt.Printf("Usage: %s [command]\n\n", os.Args[0])
-	fmt.Println("A portable tool for establishing temporary SSH access to remote hosts over a private Tailscale network")
+	fmt.Print("A portable tool for establishing temporary SSH access to remote hosts over a private Tailscale network\n\n")
+	fmt.Printf("Usage: %s\n", os.Args[0])
+	fmt.Println("Commands:\n\t--help, help\t\tShow this message")
 }
 
 func main() {
 	if len(os.Args) > 1 {
-		if os.Args[1] == "--help" || os.Args[1] == "-help" || os.Args[1] == "help" {
+		switch os.Args[1] {
+		case "--help", "-help", "-h", "help":
 			printUsage()
 			return
 		}
@@ -172,7 +189,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	sigChan := make(chan os.Signal, 1)
